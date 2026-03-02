@@ -32,7 +32,7 @@ CREATE TABLE public.videos (
   video_url TEXT NOT NULL,
   thumbnail_url TEXT,
   views INTEGER DEFAULT 0,
-  is_premium BOOLEAN DEFAULT FALSE,
+  is_gated BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
