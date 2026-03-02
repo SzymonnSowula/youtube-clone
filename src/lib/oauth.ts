@@ -1,11 +1,10 @@
 import crypto from 'crypto'
 
 const isSandbox = process.env.WHOP_SANDBOX === 'true'
-const API_BASE = isSandbox
-  ? 'https://sandbox-api.whop.com'
-  : 'https://api.whop.com'
+const UI_BASE = isSandbox ? 'https://sandbox.whop.com' : 'https://whop.com'
+const API_BASE = isSandbox ? 'https://sandbox-api.whop.com' : 'https://api.whop.com'
 
-const WHOP_AUTHORIZE_URL = `${API_BASE}/oauth/authorize`
+const WHOP_AUTHORIZE_URL = `${UI_BASE}/oauth/authorize`
 const WHOP_TOKEN_URL = `${API_BASE}/oauth/token`
 const WHOP_USERINFO_URL = `${API_BASE}/oauth/userinfo`
 
@@ -47,6 +46,7 @@ export async function exchangeCodeForTokens(params: {
   code: string
   codeVerifier: string
   clientId: string
+  clientSecret: string
   redirectUri: string
 }) {
   const response = await fetch(WHOP_TOKEN_URL, {
@@ -59,6 +59,7 @@ export async function exchangeCodeForTokens(params: {
       code: params.code,
       redirect_uri: params.redirectUri,
       client_id: params.clientId,
+      client_secret: params.clientSecret,
       code_verifier: params.codeVerifier,
     }),
   })

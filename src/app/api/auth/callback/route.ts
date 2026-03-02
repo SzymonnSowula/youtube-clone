@@ -37,6 +37,7 @@ export async function GET(request: NextRequest) {
       code,
       codeVerifier,
       clientId: process.env.WHOP_APP_ID!,
+      clientSecret: process.env.WHOP_API_KEY!,
       redirectUri: `${baseUrl}/api/auth/callback`,
     })
 
