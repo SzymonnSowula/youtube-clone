@@ -55,49 +55,23 @@ export async function GET(request: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     )
-    
-    const { data: existingUser } = await supabase
+    // Upsert user (create if new, update if returning)
+    const { data: user, error: upsertError } = await supabase
       .from('users')
+      .upsert({
+        whop_id: userInfo.sub,
+        email: userInfo.email || '',
+        username: userInfo.preferred_username || '',
+        avatar_url: userInfo.picture,
+      }, { onConflict: 'whop_id' })
       .select('id')
-      .eq('whop_id', userInfo.sub)
       .single()
-      
-    let userId: string;
 
-    if (existingUser) {
-      console.log('[Auth] Existing user found, updating...')
-      await supabase
-        .from('users')
-        .update({
-          email: userInfo.email || '',
-          username: userInfo.preferred_username || '',
-          avatar_url: userInfo.picture,
-        })
-        .eq('whop_id', userInfo.sub)
-        
-      userId = existingUser.id;
-    } else {
-      console.log('[Auth] No existing user, creating new one...')
-      const newId = crypto.randomUUID()
-      const { data: newUser, error: insertError } = await supabase
-        .from('users')
-        .insert({
-          id: newId,
-          whop_id: userInfo.sub,
-          email: userInfo.email || '',
-          username: userInfo.preferred_username || '',
-          avatar_url: userInfo.picture,
-        })
-        .select()
-        .single()
-        
-      if (insertError) {
-        console.error('[Auth] Supabase insert error:', insertError)
-        userId = newId
-      } else {
-        userId = newUser!.id
-      }
+    if (upsertError) {
+      console.error('[Auth] Supabase upsert error:', upsertError)
     }
+
+    const userId = user?.id || crypto.randomUUID()
 
     console.log('[Auth] Creating session for userId:', userId)
 
