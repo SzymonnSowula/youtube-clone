@@ -25,10 +25,10 @@ function verifySignature(payload: string, signature: string, secret: string): bo
 
 // Whop webhook event types we handle
 type WebhookEventType =
-  | 'membership.went_valid'
-  | 'membership.went_invalid'
-  | 'payment.succeeded'
-  | 'payment.failed'
+  | 'membership_activated'
+  | 'membership_deactivated'
+  | 'payment_succeeded'
+  | 'payment_failed'
 
 interface WebhookPayload {
   id: string
@@ -77,19 +77,19 @@ export async function POST(request: NextRequest) {
 
     // Handle specific events
     switch (payload.event) {
-      case 'membership.went_valid':
+      case 'membership_activated':
         await handleMembershipValid(supabase, payload.data)
         break
 
-      case 'membership.went_invalid':
+      case 'membership_deactivated':
         await handleMembershipInvalid(supabase, payload.data)
         break
 
-      case 'payment.succeeded':
+      case 'payment_succeeded':
         await handlePaymentSucceeded(supabase, payload.data)
         break
 
-      case 'payment.failed':
+      case 'payment_failed':
         await handlePaymentFailed(supabase, payload.data)
         break
 

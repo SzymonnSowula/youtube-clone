@@ -703,50 +703,331 @@ return NextResponse.json({ checkoutUrl: checkoutConfig.purchase_url })
 
 ## Step 8: Handling webhooks
 
-Webhooks are crucial for keeping your database in sync with Whop. When a payment is processed or a subscription is cancelled, Whop sends a webhook event to your server.
+Webhooks keep your database in sync with Whop in real-time. When a user subscribes, cancels, or makes a payment, Whop fires an HTTP POST to your server. Without webhooks, your `subscriptions` table would go stale and content gating would break.
+
+We handle four events:
+- `membership_activated` — activates a subscription
+- `membership_deactivated` — cancels a subscription
+- `payment_succeeded` — records revenue
+- `payment_failed` — logs failed charges
+
+### Create the webhook database tables
+
+These two tables give you an audit log of every webhook event and a local cache of payment data for the revenue dashboard. Create a new migration at `supabase/migrations/20240103000000_webhook_events.sql`:
+
+```sql
+-- Webhook events audit log
+CREATE TABLE public.webhook_events (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  event_type TEXT NOT NULL,
+  whop_event_id TEXT UNIQUE,
+  payload JSONB NOT NULL DEFAULT '{}',
+  processed_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+);
+
+-- Payment records (local cache of Whop payments)
+CREATE TABLE public.payment_records (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  channel_id UUID REFERENCES public.channels(id) ON DELETE CASCADE NOT NULL,
+  whop_payment_id TEXT UNIQUE NOT NULL,
+  amount DECIMAL NOT NULL DEFAULT 0,
+  currency TEXT DEFAULT 'usd',
+  status TEXT NOT NULL DEFAULT 'pending',
+  billing_reason TEXT,
+  card_brand TEXT,
+  card_last4 TEXT,
+  user_email TEXT,
+  user_name TEXT,
+  whop_user_id TEXT,
+  refunded_amount DECIMAL DEFAULT 0,
+  paid_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+);
+
+-- Enable RLS
+ALTER TABLE public.webhook_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payment_records ENABLE ROW LEVEL SECURITY;
+
+-- Webhook events: service role only
+CREATE POLICY "Service role can manage webhook events." ON public.webhook_events FOR ALL USING (true);
+
+-- Payment records: creators can read, service role can insert
+CREATE POLICY "Payment records viewable by channel owner." ON public.payment_records FOR SELECT USING (true);
+CREATE POLICY "Service role can insert payment records." ON public.payment_records FOR INSERT WITH CHECK (true);
+
+-- Indexes for fast lookups
+CREATE INDEX idx_payment_records_channel_id ON public.payment_records(channel_id);
+CREATE INDEX idx_payment_records_paid_at ON public.payment_records(paid_at);
+CREATE INDEX idx_webhook_events_event_type ON public.webhook_events(event_type);
+```
+
+Run this migration from the Supabase SQL Editor.
+
+### Add the webhook secret to your environment
+
+Add these to your `.env`:
+
+```bash
+WHOP_WEBHOOK_SECRET="whsec_your_webhook_secret"
+SUPABASE_SERVICE_ROLE_KEY="your-supabase-service-role-key"
+```
+
+The service role key lets the webhook bypass Row Level Security — webhooks run without a user session, so the regular anon key won't work.
 
 ### Create the webhook endpoint
+
+The webhook route does three things: verifies the signature, logs the event, and dispatches to a handler.
 
 ```typescript
 // src/app/api/webhooks/whop/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase-server'
+import { createClient } from '@supabase/supabase-js'
+import crypto from 'crypto'
+
+// Service role client — bypasses RLS
+function getServiceSupabase() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  )
+}
+
+// HMAC-SHA256 signature verification
+function verifySignature(payload: string, signature: string, secret: string): boolean {
+  const expected = crypto
+    .createHmac('sha256', secret)
+    .update(payload)
+    .digest('hex')
+
+  return crypto.timingSafeEqual(
+    Buffer.from(signature),
+    Buffer.from(expected),
+  )
+}
 
 export async function POST(request: NextRequest) {
-  const body = await request.json()
-  const webhookSecret = process.env.WHOP_WEBHOOK_SECRET
+  try {
+    const rawBody = await request.text()
+    const webhookSecret = process.env.WHOP_WEBHOOK_SECRET
 
-  // Verify webhook signature (implementation depends on Whop's format)
-  
-  switch (body.event) {
-    case 'membership.created':
-      // Create subscription in database
-      await supabase.from('subscriptions').insert({
-        user_id: body.data.user_id,
-        channel_id: body.data.channel_id,
-        status: 'active',
-      })
-      break
+    // 1. Verify signature
+    if (webhookSecret) {
+      const signature = request.headers.get('x-whop-signature') ||
+                        request.headers.get('whop-signature') || ''
 
-    case 'membership.cancelled':
-      // Update subscription status
-      await supabase.from('subscriptions')
-        .update({ status: 'cancelled' })
-        .match({ user_id: body.data.user_id, channel_id: body.data.channel_id })
-      break
+      if (!signature) {
+        return NextResponse.json({ error: 'Missing signature' }, { status: 401 })
+      }
+
+      const isValid = verifySignature(rawBody, signature, webhookSecret)
+      if (!isValid) {
+        return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
+      }
+    }
+
+    const payload = JSON.parse(rawBody)
+    const supabase = getServiceSupabase()
+
+    // 2. Log to audit table
+    await supabase.from('webhook_events').insert({
+      event_type: payload.event,
+      whop_event_id: payload.id,
+      payload: payload,
+      processed_at: new Date().toISOString(),
+    })
+
+    // 3. Dispatch to handler
+    switch (payload.event) {
+      case 'membership_activated':
+        await handleMembershipValid(supabase, payload.data)
+        break
+      case 'membership_deactivated':
+        await handleMembershipInvalid(supabase, payload.data)
+        break
+      case 'payment_succeeded':
+        await handlePaymentSucceeded(supabase, payload.data)
+        break
+      case 'payment_failed':
+        await handlePaymentFailed(supabase, payload.data)
+        break
+    }
+
+    return NextResponse.json({ received: true })
+  } catch (error) {
+    console.error('[Webhook] Processing error:', error)
+    // Always return 200 to prevent Whop from retrying indefinitely
+    return NextResponse.json({ received: true, error: 'Processing error' })
+  }
+}
+```
+
+> **Why always return 200?** If you return a 4xx/5xx, Whop will retry the webhook. During development that can cause a flood of duplicate events. Return 200 and log the error instead.
+
+### Handle membership events
+
+When Whop fires `membership_activated`, we look up the user and channel in Supabase and upsert the subscription:
+
+```typescript
+async function handleMembershipValid(supabase, data) {
+  const userId = data.user_id
+  const product = data.product
+  const plan = data.plan
+
+  if (!userId) return
+
+  // Look up user by their Whop ID
+  const { data: user } = await supabase
+    .from('users')
+    .select('id')
+    .eq('whop_id', userId)
+    .single()
+
+  if (!user) return
+
+  // Look up channel by Whop product ID
+  const { data: channel } = await supabase
+    .from('channels')
+    .select('id')
+    .eq('whop_product_id', product?.id)
+    .single()
+
+  if (!channel) return
+
+  // Find matching tier
+  let tierId = null
+  if (plan?.id) {
+    const { data: tier } = await supabase
+      .from('membership_tiers')
+      .select('id')
+      .eq('whop_plan_id', plan.id)
+      .single()
+    tierId = tier?.id || null
   }
 
-  return NextResponse.json({ received: true })
+  // Upsert subscription as active
+  await supabase
+    .from('subscriptions')
+    .upsert(
+      {
+        user_id: user.id,
+        channel_id: channel.id,
+        tier_id: tierId,
+        status: 'active',
+      },
+      { onConflict: 'user_id,channel_id' }
+    )
+}
+```
+
+The cancellation handler mirrors this — it finds the same user/channel pair and sets the status to `cancelled`:
+
+```typescript
+async function handleMembershipInvalid(supabase, data) {
+  const userId = data.user_id
+  const product = data.product
+
+  if (!userId) return
+
+  const { data: user } = await supabase
+    .from('users').select('id').eq('whop_id', userId).single()
+  if (!user) return
+
+  const { data: channel } = await supabase
+    .from('channels').select('id').eq('whop_product_id', product?.id).single()
+  if (!channel) return
+
+  await supabase
+    .from('subscriptions')
+    .update({ status: 'cancelled' })
+    .match({ user_id: user.id, channel_id: channel.id })
+}
+```
+
+### Handle payment events
+
+Payment events populate the `payment_records` table, which feeds the revenue dashboard:
+
+```typescript
+async function handlePaymentSucceeded(supabase, data) {
+  const paymentId = data.id
+  const company = data.company
+  const user = data.user
+  const total = data.usd_total ?? data.total ?? 0
+
+  if (!paymentId || !company?.id) return
+
+  const { data: channel } = await supabase
+    .from('channels').select('id').eq('whop_company_id', company.id).single()
+  if (!channel) return
+
+  await supabase.from('payment_records').upsert(
+    {
+      channel_id: channel.id,
+      whop_payment_id: paymentId,
+      amount: total,
+      currency: data.currency || 'usd',
+      status: 'paid',
+      billing_reason: data.billing_reason || null,
+      card_brand: data.card_brand || null,
+      card_last4: data.card_last4 || null,
+      user_email: user?.email || null,
+      user_name: user?.name || null,
+      whop_user_id: user?.id || null,
+      refunded_amount: data.refunded_amount || 0,
+      paid_at: data.paid_at || new Date().toISOString(),
+    },
+    { onConflict: 'whop_payment_id' }
+  )
+}
+
+async function handlePaymentFailed(supabase, data) {
+  const paymentId = data.id
+  const company = data.company
+  const user = data.user
+
+  if (!paymentId || !company?.id) return
+
+  const { data: channel } = await supabase
+    .from('channels').select('id').eq('whop_company_id', company.id).single()
+  if (!channel) return
+
+  await supabase.from('payment_records').upsert(
+    {
+      channel_id: channel.id,
+      whop_payment_id: paymentId,
+      amount: data.total || 0,
+      currency: data.currency || 'usd',
+      status: 'failed',
+      billing_reason: data.billing_reason || null,
+      user_email: user?.email || null,
+      user_name: user?.name || null,
+      whop_user_id: user?.id || null,
+      paid_at: null,
+    },
+    { onConflict: 'whop_payment_id' }
+  )
 }
 ```
 
 ### Configure the webhook in Whop
 
-1. Go to your app settings in the Whop Developer Dashboard.
+1. Go to your app settings in the **Whop Developer Dashboard** (or **Sandbox Developer Dashboard** for testing).
 2. Navigate to the **Webhooks** tab and click **Create webhook**.
 3. Enter your webhook URL: `https://your-domain.com/api/webhooks/whop`
-4. Select the events you want to listen to (e.g., `membership.created`, `membership.cancelled`).
-5. Copy the **Webhook Secret** and add it to your `.env` file.
+4. Select the events: `membership_activated`, `membership_deactivated`, `payment_succeeded`, `payment_failed`.
+5. Copy the **Webhook Secret** and add it to your `.env` as `WHOP_WEBHOOK_SECRET`.
+
+> **Tip:** For local development, use [ngrok](https://ngrok.com) to expose your localhost: `ngrok http 3000`. Then set the ngrok URL as your webhook endpoint in the Whop dashboard.
+
+### Test the webhooks
+
+1. Start your dev server and expose it via ngrok.
+2. Subscribe to a channel using the Whop sandbox checkout.
+3. Check your **Supabase dashboard** — the `webhook_events` table should have a new row.
+4. Verify the `subscriptions` table shows an `active` subscription for the user.
+5. Check the `payment_records` table for the payment details.
+6. Cancel the subscription in the sandbox — confirm the subscription status updates to `cancelled`.
 
 ---
 
@@ -1483,6 +1764,7 @@ You've now built a fully featured YouTube clone with:
 - ✅ **Channel memberships** with Whop-powered checkouts
 - ✅ **Content gating** via Whop membership verification
 - ✅ **Super Chats** for one-time tips
+- ✅ **Webhooks** with HMAC signature verification and real-time subscription + payment syncing
 - ✅ **Creator payouts** through the Whop portal
 - ✅ **Video uploads** to Supabase Storage
 - ✅ **Session-aware UI** with avatar, profile dropdown, and Creator Studio

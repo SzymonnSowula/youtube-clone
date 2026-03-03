@@ -50,6 +50,7 @@ export async function POST(request: NextRequest) {
       id: session.userId,
       channel_name: channelName.trim(),
       description: description?.trim() || null,
+      whop_company_id: process.env.WHOP_COMPANY_ID || null,
     })
     .select()
     .single()
