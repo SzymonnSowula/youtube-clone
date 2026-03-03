@@ -3,7 +3,7 @@ import { cookies } from 'next/headers'
 import { getIronSession } from 'iron-session'
 import { exchangeCodeForTokens, fetchUserInfo } from '@/lib/oauth'
 import { sessionOptions, SessionData } from '@/lib/session'
-import { createClient } from '@/lib/supabase-server'
+import { createClient } from '@supabase/supabase-js'
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
@@ -49,9 +49,12 @@ export async function GET(request: NextRequest) {
     const userInfo = await fetchUserInfo(tokens.access_token)
     console.log('[Auth] User info received:', userInfo.sub, userInfo.preferred_username)
 
-    // Step 3: Sync user to Supabase
+    // Step 3: Sync user to Supabase (using service role to bypass RLS)
     console.log('[Auth] Syncing user to Supabase...')
-    const supabase = await createClient()
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    )
     
     const { data: existingUser } = await supabase
       .from('users')
