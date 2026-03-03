@@ -45,6 +45,7 @@ export async function exchangeCodeForTokens(params: {
   code: string
   codeVerifier: string
   clientId: string
+  clientSecret: string
   redirectUri: string
 }) {
   const response = await fetch(WHOP_TOKEN_URL, {
@@ -57,6 +58,7 @@ export async function exchangeCodeForTokens(params: {
       code: params.code,
       redirect_uri: params.redirectUri,
       client_id: params.clientId,
+      client_secret: params.clientSecret,
       code_verifier: params.codeVerifier,
     }),
   })
