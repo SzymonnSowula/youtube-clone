@@ -33,6 +33,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    // Step 1: Exchange code for tokens
+    console.log('[Auth] Exchanging code for tokens...')
     const tokens = await exchangeCodeForTokens({
       code,
       codeVerifier,
@@ -40,21 +42,27 @@ export async function GET(request: NextRequest) {
       clientSecret: process.env.WHOP_API_KEY!,
       redirectUri: `${baseUrl}/api/auth/callback`,
     })
+    console.log('[Auth] Token exchange successful')
 
+    // Step 2: Fetch user info
+    console.log('[Auth] Fetching user info...')
     const userInfo = await fetchUserInfo(tokens.access_token)
+    console.log('[Auth] User info received:', userInfo.sub, userInfo.preferred_username)
+
+    // Step 3: Sync user to Supabase
+    console.log('[Auth] Syncing user to Supabase...')
     const supabase = await createClient()
     
-    // Sync to Supabase
-    // Using a simplistic upsert logic by selecting and then updating/inserting
-    const { data: existingUser } = await supabase
+    const { data: existingUser, error: selectError } = await supabase
       .from('users')
       .select('id')
       .eq('whop_id', userInfo.sub)
       .single()
       
-    let userId;
+    let userId: string;
 
     if (existingUser) {
+      console.log('[Auth] Existing user found, updating...')
       await supabase
         .from('users')
         .update({
@@ -66,12 +74,14 @@ export async function GET(request: NextRequest) {
         
       userId = existingUser.id;
     } else {
-      // Note: We need a UUID for Supabase, if auth.users isn't managing this,
-      // we generate one or let the DB default handle it (assuming id is UUID generated)
-      const { data: newUser } = await supabase
+      console.log('[Auth] No existing user, creating new one...')
+      // Use Supabase Admin approach: create auth user first, then profile
+      // Or simply insert directly if the FK constraint is relaxed
+      const newId = crypto.randomUUID()
+      const { data: newUser, error: insertError } = await supabase
         .from('users')
         .insert({
-          id: crypto.randomUUID(), // Manual uuid generation if supabase auth hook isn't active
+          id: newId,
           whop_id: userInfo.sub,
           email: userInfo.email || '',
           username: userInfo.preferred_username || '',
@@ -80,11 +90,19 @@ export async function GET(request: NextRequest) {
         .select()
         .single()
         
-       if(newUser) userId = newUser.id
+      if (insertError) {
+        console.error('[Auth] Supabase insert error:', insertError)
+        // Fallback: still create session even if DB sync fails
+        // This lets the user log in while we debug the DB issue
+        userId = newId
+      } else {
+        userId = newUser!.id
+      }
     }
 
-    const response = NextResponse.redirect(new URL('/', baseUrl))
-    
+    console.log('[Auth] Creating session for userId:', userId)
+
+    // Step 4: Save session
     const session = await getIronSession<SessionData>(cookieStore, sessionOptions)
     session.userId = userId
     session.whopUserId = userInfo.sub
@@ -92,12 +110,15 @@ export async function GET(request: NextRequest) {
     session.isLoggedIn = true
     await session.save()
 
+    // Clean up
     cookieStore.delete('oauth_code_verifier')
     cookieStore.delete('oauth_state')
 
-    return response
-  } catch (error) {
-    console.error('OAuth callback error:', error)
-    return NextResponse.redirect(new URL(`/?error=auth_failed`, baseUrl))
+    console.log('[Auth] Login complete, redirecting to home')
+    return NextResponse.redirect(new URL('/', baseUrl))
+  } catch (err) {
+    console.error('[Auth] OAuth callback error:', err)
+    const errorMessage = err instanceof Error ? err.message : 'unknown'
+    return NextResponse.redirect(new URL(`/?error=auth_failed&detail=${encodeURIComponent(errorMessage.substring(0, 200))}`, baseUrl))
   }
 }

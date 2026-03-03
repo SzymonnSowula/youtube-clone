@@ -65,7 +65,9 @@ export async function exchangeCodeForTokens(params: {
   })
 
   if (!response.ok) {
-    throw new Error('Failed to exchange code for tokens')
+    const errorBody = await response.text()
+    console.error('Token exchange failed:', response.status, errorBody)
+    throw new Error(`Token exchange failed (${response.status}): ${errorBody}`)
   }
 
   return response.json() as Promise<{
@@ -85,7 +87,9 @@ export async function fetchUserInfo(accessToken: string) {
   })
 
   if (!response.ok) {
-    throw new Error('Failed to fetch user info')
+    const errorBody = await response.text()
+    console.error('Userinfo fetch failed:', response.status, errorBody)
+    throw new Error(`Userinfo fetch failed (${response.status}): ${errorBody}`)
   }
 
   return response.json() as Promise<{
