@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
-import { getIronSession } from 'iron-session'
+import { sealData } from 'iron-session'
 import { exchangeCodeForTokens, fetchUserInfo } from '@/lib/oauth'
 import { sessionOptions, SessionData } from '@/lib/session'
 import { createClient } from '@supabase/supabase-js'
@@ -56,7 +56,6 @@ export async function GET(request: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     )
-    // Upsert user (create if new, update if returning)
     const { data: user, error: upsertError } = await supabase
       .from('users')
       .upsert({
@@ -76,17 +75,29 @@ export async function GET(request: NextRequest) {
 
     console.log('[Auth] Creating session for userId:', userId)
 
-    // Step 4: Create redirect response and attach session cookie directly to it
+    // Step 4: Manually seal session data and set cookie on the redirect response
+    const sessionData: SessionData = {
+      userId,
+      whopUserId: userInfo.sub,
+      whopAccessToken: tokens.access_token,
+      isLoggedIn: true,
+    }
+
+    const sealedSession = await sealData(sessionData, {
+      password: sessionOptions.password as string,
+    })
+
     const redirectUrl = new URL(returnTo, baseUrl)
     const response = NextResponse.redirect(redirectUrl)
 
-    // Set the iron-session cookie directly on the response
-    const session = await getIronSession<SessionData>(request, response, sessionOptions)
-    session.userId = userId
-    session.whopUserId = userInfo.sub
-    session.whopAccessToken = tokens.access_token
-    session.isLoggedIn = true
-    await session.save()
+    // Set the session cookie directly on the response
+    response.cookies.set(sessionOptions.cookieName, sealedSession, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 60 * 60 * 24 * 7, // 1 week
+    })
 
     // Clean up OAuth cookies
     response.cookies.delete('oauth_code_verifier')
