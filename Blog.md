@@ -15,12 +15,12 @@ Traditionally, a video platform requires stitching together a payments service (
 
 Whop replaces all of this with a single SDK.
 
-This tutorial walks you through creating a fully functional YouTube clone with user authentication, channel memberships, video gating, creator payouts, Super Chats, and more — before deploying it to Vercel.
+This tutorial walks you through creating a fully functional YouTube clone with user authentication, channel memberships, video gating, creator payouts, Super Chats, and more - before deploying it to Vercel.
 
 The project has three main parts:
-- **Next.js app** — handles the frontend and API routes
-- **Supabase database** — stores users, channels, videos, tiers, and subscriptions
-- **Whop infrastructure** — handles user authentication, payments, and creator payouts
+- **Next.js app** - handles the frontend and API routes
+- **Supabase database** - stores users, channels, videos, tiers, and subscriptions
+- **Whop infrastructure** - handles user authentication, payments, and creator payouts
 
 ---
 
@@ -31,26 +31,26 @@ Before we start coding, let's see what you'll be building.
 By the end of this tutorial, you'll have a video platform that includes these pages and features:
 
 ### Pages
-- `/` — Homepage with video grid and tag filters
-- `/signin` — Whop OAuth login
-- `/watch/[id]` — Video player with membership gating
-- `/channel/[username]` — Public channel profile with membership tiers
-- `/creator/dashboard` — Creator analytics overview
-- `/creator/content` — Video management with gating controls
-- `/creator/memberships` — Tier management synced with Whop plans
-- `/creator/payouts` — Earnings dashboard and Whop payout portal
+- `/` - Homepage with video grid and tag filters
+- `/signin` - Whop OAuth login
+- `/watch/[id]` - Video player with membership gating
+- `/channel/[username]` - Public channel profile with membership tiers
+- `/creator/dashboard` - Creator analytics overview
+- `/creator/content` - Video management with gating controls
+- `/creator/memberships` - Tier management synced with Whop plans
+- `/creator/payouts` - Earnings dashboard and Whop payout portal
 
 ### Core Features
-- **Authentication** — Whop OAuth (PKCE) for login and session management
-- **Channel creation** — Users can become creators with their own channels
-- **Membership tiers** — Creators can set up multiple pricing tiers (synced with Whop)
-- **Video uploads** — Creators upload videos to Supabase Storage
-- **Content gating** — Videos locked behind membership tiers, verified via Whop SDK
-- **Checkout and payments** — Whop handles subscription charges
-- **Super Chats** — One-time tip payments via Whop checkout
-- **Webhooks** — Payment events sync subscriptions to the database
-- **Payouts** — Creators withdraw funds via the hosted Whop payout portal
-- **Embedded chat** — Whop-powered real-time chat on video pages
+- **Authentication** - Whop OAuth (PKCE) for login and session management
+- **Channel creation** - Users can become creators with their own channels
+- **Membership tiers** - Creators can set up multiple pricing tiers (synced with Whop)
+- **Video uploads** - Creators upload videos to Supabase Storage
+- **Content gating** - Videos locked behind membership tiers, verified via Whop SDK
+- **Checkout and payments** - Whop handles subscription charges
+- **Super Chats** - One-time tip payments via Whop checkout
+- **Webhooks** - Payment events sync subscriptions to the database
+- **Payouts** - Creators withdraw funds via the hosted Whop payout portal
+- **Embedded chat** - Whop-powered real-time chat on video pages
 
 ---
 
@@ -87,12 +87,12 @@ npm install @whop/sdk @supabase/ssr @supabase/supabase-js iron-session lucide-re
 ```
 
 Here's what each package does:
-- `@whop/sdk` — Server-side Whop API client for memberships, checkouts, and payouts
-- `@supabase/ssr` — Supabase client optimized for server-side rendering
-- `@supabase/supabase-js` — Core Supabase client
-- `iron-session` — Encrypted cookie-based session management
-- `lucide-react` — Icon library for the UI
-- `zod` — Schema validation for API inputs
+- `@whop/sdk` - Server-side Whop API client for memberships, checkouts, and payouts
+- `@supabase/ssr` - Supabase client optimized for server-side rendering
+- `@supabase/supabase-js` - Core Supabase client
+- `iron-session` - Encrypted cookie-based session management
+- `lucide-react` - Icon library for the UI
+- `zod` - Schema validation for API inputs
 
 ---
 
@@ -214,7 +214,7 @@ export const defaultSession: SessionData = {
 
 ### Create OAuth configuration
 
-Create `src/lib/oauth.ts` with helper functions for the PKCE flow — generating codes, building the authorize URL, and exchanging tokens:
+Create `src/lib/oauth.ts` with helper functions for the PKCE flow - generating codes, building the authorize URL, and exchanging tokens:
 
 ```typescript
 // src/lib/oauth.ts
@@ -655,7 +655,7 @@ export default async function ChannelPage({ params }) {
       {/* Membership Tiers */}
       {channel.membership_tiers.map(tier => (
         <div key={tier.id}>
-          <h3>{tier.name} — ${tier.price}/mo</h3>
+          <h3>{tier.name} - ${tier.price}/mo</h3>
           <JoinButton channelId={channel.id} tierId={tier.id} />
         </div>
       ))}
@@ -706,10 +706,10 @@ return NextResponse.json({ checkoutUrl: checkoutConfig.purchase_url })
 Webhooks keep your database in sync with Whop in real-time. When a user subscribes, cancels, or makes a payment, Whop fires an HTTP POST to your server. Without webhooks, your `subscriptions` table would go stale and content gating would break.
 
 We handle four events:
-- `membership_activated` — activates a subscription
-- `membership_deactivated` — cancels a subscription
-- `payment_succeeded` — records revenue
-- `payment_failed` — logs failed charges
+- `membership_activated` - activates a subscription
+- `membership_deactivated` - cancels a subscription
+- `payment_succeeded` - records revenue
+- `payment_failed` - logs failed charges
 
 ### Create the webhook database tables
 
@@ -773,7 +773,7 @@ WHOP_WEBHOOK_SECRET="whsec_your_webhook_secret"
 SUPABASE_SERVICE_ROLE_KEY="your-supabase-service-role-key"
 ```
 
-The service role key lets the webhook bypass Row Level Security — webhooks run without a user session, so the regular anon key won't work.
+The service role key lets the webhook bypass Row Level Security - webhooks run without a user session, so the regular anon key won't work.
 
 ### Create the webhook endpoint
 
@@ -785,7 +785,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 
-// Service role client — bypasses RLS
+// Service role client - bypasses RLS
 function getServiceSupabase() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -920,7 +920,7 @@ async function handleMembershipValid(supabase, data) {
 }
 ```
 
-The cancellation handler mirrors this — it finds the same user/channel pair and sets the status to `cancelled`:
+The cancellation handler mirrors this - it finds the same user/channel pair and sets the status to `cancelled`:
 
 ```typescript
 async function handleMembershipInvalid(supabase, data) {
@@ -1024,10 +1024,10 @@ async function handlePaymentFailed(supabase, data) {
 
 1. Start your dev server and expose it via ngrok.
 2. Subscribe to a channel using the Whop sandbox checkout.
-3. Check your **Supabase dashboard** — the `webhook_events` table should have a new row.
+3. Check your **Supabase dashboard** - the `webhook_events` table should have a new row.
 4. Verify the `subscriptions` table shows an `active` subscription for the user.
 5. Check the `payment_records` table for the payment details.
-6. Cancel the subscription in the sandbox — confirm the subscription status updates to `cancelled`.
+6. Cancel the subscription in the sandbox - confirm the subscription status updates to `cancelled`.
 
 ---
 
@@ -1099,9 +1099,9 @@ export default async function WatchPage({ params }) {
 ### Test content gating
 
 1. Upload a video and set `is_gated` to `true` in your Supabase dashboard.
-2. Log out and try to access the video — you should see the paywall.
+2. Log out and try to access the video - you should see the paywall.
 3. Join the channel through the checkout flow.
-4. Refresh the video page — you should now have full access.
+4. Refresh the video page - you should now have full access.
 
 ---
 
@@ -1266,11 +1266,11 @@ After deploying, go back to your Whop app settings and add the production redire
 https://your-app.vercel.app/api/auth/callback
 ```
 
-> **Note:** The `redirect_uri` must be an **exact match** — including protocol, domain, path, and no trailing slash.
+> **Note:** The `redirect_uri` must be an **exact match** - including protocol, domain, path, and no trailing slash.
 
 ## Step 13: Comments & Likes
 
-Every video platform needs social engagement. We'll build a full comment system with nested replies and like/dislike buttons — all stored in Supabase.
+Every video platform needs social engagement. We'll build a full comment system with nested replies and like/dislike buttons - all stored in Supabase.
 
 ### Update the database schema
 
@@ -1371,7 +1371,7 @@ export async function POST(request: NextRequest) {
 
 ### Create the video like/dislike API
 
-This route handles toggling between like, dislike, and no vote — with a smart toggle pattern:
+This route handles toggling between like, dislike, and no vote - with a smart toggle pattern:
 
 ```typescript
 // src/app/api/videos/[id]/like/route.ts
@@ -1387,7 +1387,7 @@ export async function POST(request: NextRequest, { params }) {
 
   if (existing) {
     if (existing.type === type) {
-      // Toggle off — remove vote
+      // Toggle off - remove vote
       await supabase.from('video_likes').delete().eq(...)
       return NextResponse.json({ action: 'removed', type: null })
     } else {
@@ -1500,7 +1500,7 @@ Add both components to the watch page, passing server-fetched initial data:
 2. Post a comment and verify it appears immediately.
 3. Click **Reply** on your comment, type a reply, and verify it threads correctly.
 4. Expand/collapse the reply thread.
-5. Like and dislike the video — verify the count updates and the button state changes.
+5. Like and dislike the video - verify the count updates and the button state changes.
 6. Like a comment and verify the like count increments.
 
 ---
@@ -1593,11 +1593,11 @@ export default async function CreatorDashboard() {
       {/* Whop Connection Status */}
       {channel.whop_company_id ? (
         <div className="bg-green-500/10 border border-green-500/20 rounded-xl">
-          🟢 Whop Connected — Revenue and membership data synced live via Whop SDK
+          Whop Connected - Revenue and membership data synced live via Whop SDK
         </div>
       ) : (
         <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl">
-          🟡 Whop not connected — Connect your Whop company to enable revenue tracking
+          Whop not connected - Connect your Whop company to enable revenue tracking
         </div>
       )}
 
@@ -1734,7 +1734,7 @@ The Super Chat button uses the same Whop checkout flow from Step 7, creating a o
 
 ### Test live streaming
 
-1. Navigate to `/live` — you should see the Live hub with stream cards.
+1. Navigate to `/live` - you should see the Live hub with stream cards.
 2. Click into a stream to open the viewer page.
 3. Verify the video player, live chat, and Super Chat button all render correctly.
 4. When a Whop chat channel ID is configured, the live chat uses Whop's real-time messaging.
@@ -1749,10 +1749,10 @@ After adding comments, analytics, and live streaming:
 2. **Commit and push** all changes to GitHub.
 3. Vercel will automatically redeploy.
 4. Test all features on production:
-   - Post a comment and reply
-   - Like/dislike a video
-   - View real analytics on the Creator Dashboard
-   - Browse the Live hub and open a stream
+  - Post a comment and reply
+  - Like/dislike a video
+  - View real analytics on the Creator Dashboard
+  - Browse the Live hub and open a stream
 
 ---
 
@@ -1760,31 +1760,31 @@ After adding comments, analytics, and live streaming:
 
 You've now built a fully featured YouTube clone with:
 
-- ✅ **Whop OAuth** for user authentication
-- ✅ **Channel memberships** with Whop-powered checkouts
-- ✅ **Content gating** via Whop membership verification
-- ✅ **Super Chats** for one-time tips
-- ✅ **Webhooks** with HMAC signature verification and real-time subscription + payment syncing
-- ✅ **Creator payouts** through the Whop portal
-- ✅ **Video uploads** to Supabase Storage
-- ✅ **Session-aware UI** with avatar, profile dropdown, and Creator Studio
-- ✅ **Comments & Likes** with nested replies
-- ✅ **Creator Analytics** with real Whop SDK data
-- ✅ **Live Streaming** with embedded chat
+- **Whop OAuth** for user authentication
+- **Channel memberships** with Whop-powered checkouts
+- **Content gating** via Whop membership verification
+- **Super Chats** for one-time tips
+- **Webhooks** with HMAC signature verification and real-time subscription + payment syncing
+- **Creator payouts** through the Whop portal
+- **Video uploads** to Supabase Storage
+- **Session-aware UI** with avatar, profile dropdown, and Creator Studio
+- **Comments & Likes** with nested replies
+- **Creator Analytics** with real Whop SDK data
+- **Live Streaming** with embedded chat
 
 Here are some ideas to extend this even further:
 
-- **Video processing** — Add transcoding and adaptive bitrate streaming with services like Mux or Cloudflare Stream
-- **Recommendations** — Implement a "Suggested Videos" algorithm based on watch history
-- **Notifications** — Push notifications for new videos, replies, and live streams
-- **Mobile app** — Wrap the web app in a React Native shell
-- **Search** — Full-text search across videos, channels, and comments using Supabase's pg_trgm extension
+- **Video processing** - Add transcoding and adaptive bitrate streaming with services like Mux or Cloudflare Stream
+- **Recommendations** - Implement a "Suggested Videos" algorithm based on watch history
+- **Notifications** - Push notifications for new videos, replies, and live streams
+- **Mobile app** - Wrap the web app in a React Native shell
+- **Search** - Full-text search across videos, channels, and comments using Supabase's pg_trgm extension
 
 ---
 
 ## Ready to build your own YouTube clone?
 
-Whop gives you everything you need to build a monetized creator platform — authentication, payments, payouts, and community tools — all through a single SDK.
+Whop gives you everything you need to build a monetized creator platform - authentication, payments, payouts, and community tools - all through a single SDK.
 
 [Start building on Whop today →](https://whop.com/developers)
 
