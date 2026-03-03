@@ -5,14 +5,14 @@ import { getSession } from '@/lib/auth'
 // POST /api/comments/[id]/like — Toggle like on a comment
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await getSession()
   if (!session.isLoggedIn || !session.userId) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
 
-  const commentId = params.id
+  const { id: commentId } = await params
   const supabase = await createClient()
 
   // Check if already liked

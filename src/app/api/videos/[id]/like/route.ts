@@ -5,14 +5,14 @@ import { getSession } from '@/lib/auth'
 // POST /api/videos/[id]/like — Toggle like/dislike on a video
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await getSession()
   if (!session.isLoggedIn || !session.userId) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
 
-  const videoId = params.id
+  const { id: videoId } = await params
   const body = await request.json()
   const type = body.type // 'like' or 'dislike'
 
@@ -63,9 +63,9 @@ export async function POST(
 // GET /api/videos/[id]/like — Get like/dislike counts and user's vote
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const videoId = params.id
+  const { id: videoId } = await params
   const supabase = await createClient()
 
   const { data: likes } = await supabase
