@@ -11,7 +11,10 @@ export async function middleware(request: NextRequest) {
     const sessionCookie = request.cookies.get('youtube-clone-session')
     
     if (!sessionCookie?.value) {
-      return NextResponse.redirect(new URL('/api/auth/login', request.url))
+      // Pass the intended destination as a query param
+      const loginUrl = new URL('/api/auth/login', request.url)
+      loginUrl.searchParams.set('returnTo', request.nextUrl.pathname)
+      return NextResponse.redirect(loginUrl)
     }
   }
 

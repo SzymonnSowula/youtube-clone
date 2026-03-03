@@ -23,6 +23,7 @@ export async function GET(request: NextRequest) {
   const cookieStore = await cookies()
   const storedState = cookieStore.get('oauth_state')?.value
   const codeVerifier = cookieStore.get('oauth_code_verifier')?.value
+  const returnTo = cookieStore.get('oauth_return_to')?.value || '/'
 
   if (!storedState || state !== storedState) {
     return NextResponse.redirect(new URL('/?error=invalid_state', baseUrl))
@@ -75,21 +76,24 @@ export async function GET(request: NextRequest) {
 
     console.log('[Auth] Creating session for userId:', userId)
 
-    // Step 4: Save session
-    const response = NextResponse.redirect(new URL('/', baseUrl))
-    
-    const session = await getIronSession<SessionData>(cookieStore, sessionOptions)
+    // Step 4: Create redirect response and attach session cookie directly to it
+    const redirectUrl = new URL(returnTo, baseUrl)
+    const response = NextResponse.redirect(redirectUrl)
+
+    // Set the iron-session cookie directly on the response
+    const session = await getIronSession<SessionData>(request, response, sessionOptions)
     session.userId = userId
     session.whopUserId = userInfo.sub
     session.whopAccessToken = tokens.access_token
     session.isLoggedIn = true
     await session.save()
 
-    // Clean up
-    cookieStore.delete('oauth_code_verifier')
-    cookieStore.delete('oauth_state')
+    // Clean up OAuth cookies
+    response.cookies.delete('oauth_code_verifier')
+    response.cookies.delete('oauth_state')
+    response.cookies.delete('oauth_return_to')
 
-    console.log('[Auth] Login complete, redirecting to home')
+    console.log('[Auth] Login complete, redirecting to', returnTo)
     return response
   } catch (err) {
     console.error('[Auth] OAuth callback error:', err)
