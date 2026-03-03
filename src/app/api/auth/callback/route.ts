@@ -39,7 +39,6 @@ export async function GET(request: NextRequest) {
       code,
       codeVerifier,
       clientId: process.env.WHOP_APP_ID!,
-      clientSecret: process.env.WHOP_API_KEY!,
       redirectUri: `${baseUrl}/api/auth/callback`,
     })
     console.log('[Auth] Token exchange successful')
@@ -98,20 +97,19 @@ export async function GET(request: NextRequest) {
 
     console.log('[Auth] Creating session for userId:', userId)
 
-    // Step 4: Save session — use the Response object approach for Vercel compatibility
-    const redirectUrl = new URL('/', baseUrl)
-    const response = NextResponse.redirect(redirectUrl)
+    // Step 4: Save session
+    const response = NextResponse.redirect(new URL('/', baseUrl))
     
-    const session = await getIronSession<SessionData>(request, response as unknown as Response, sessionOptions)
+    const session = await getIronSession<SessionData>(cookieStore, sessionOptions)
     session.userId = userId
     session.whopUserId = userInfo.sub
     session.whopAccessToken = tokens.access_token
     session.isLoggedIn = true
     await session.save()
 
-    // Clean up OAuth cookies
-    response.cookies.delete('oauth_code_verifier')
-    response.cookies.delete('oauth_state')
+    // Clean up
+    cookieStore.delete('oauth_code_verifier')
+    cookieStore.delete('oauth_state')
 
     console.log('[Auth] Login complete, redirecting to home')
     return response
