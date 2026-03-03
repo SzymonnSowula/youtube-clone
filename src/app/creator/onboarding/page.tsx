@@ -50,134 +50,119 @@ export default function CreatorOnboarding() {
             padding: '2rem',
         }}>
             <div style={{
-                background: '#1a1a1a',
-                borderRadius: '16px',
-                padding: '3rem',
-                maxWidth: '500px',
+                maxWidth: '460px',
                 width: '100%',
-                border: '1px solid #333',
             }}>
-                <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-                    <div style={{
-                        width: '64px',
-                        height: '64px',
-                        background: 'linear-gradient(135deg, #ff4444, #ff6b00)',
-                        borderRadius: '50%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        margin: '0 auto 1rem',
-                        fontSize: '28px',
-                    }}>
-                        🎬
-                    </div>
-                    <h1 style={{
-                        color: '#fff',
-                        fontSize: '1.75rem',
-                        fontWeight: 700,
-                        margin: '0 0 0.5rem',
-                    }}>
-                        Create Your Channel
-                    </h1>
-                    <p style={{ color: '#aaa', fontSize: '0.95rem', margin: 0 }}>
-                        Set up your creator channel to start uploading videos and growing your audience.
-                    </p>
-                </div>
+                <h1 style={{
+                    color: '#fff',
+                    fontSize: '1.5rem',
+                    fontWeight: 600,
+                    margin: '0 0 0.25rem',
+                    fontFamily: 'inherit',
+                }}>
+                    Create your channel
+                </h1>
+                <p style={{
+                    color: '#717171',
+                    fontSize: '0.875rem',
+                    margin: '0 0 2rem',
+                    lineHeight: 1.5,
+                }}>
+                    You need a channel to upload videos and access Creator Studio.
+                </p>
 
                 <form onSubmit={handleSubmit}>
-                    <div style={{ marginBottom: '1.5rem' }}>
+                    <div style={{ marginBottom: '1.25rem' }}>
                         <label style={{
                             display: 'block',
-                            color: '#ccc',
-                            fontSize: '0.875rem',
-                            fontWeight: 600,
-                            marginBottom: '0.5rem',
+                            color: '#aaa',
+                            fontSize: '0.8125rem',
+                            marginBottom: '0.375rem',
                         }}>
-                            Channel Name *
+                            Channel name
                         </label>
                         <input
                             type="text"
                             value={channelName}
                             onChange={(e) => setChannelName(e.target.value)}
-                            placeholder="My Awesome Channel"
+                            placeholder="e.g. Tech Reviews"
                             required
                             style={{
                                 width: '100%',
-                                padding: '0.75rem 1rem',
-                                background: '#0f0f0f',
-                                border: '1px solid #333',
-                                borderRadius: '8px',
+                                padding: '0.625rem 0.75rem',
+                                background: '#181818',
+                                border: '1px solid #303030',
+                                borderRadius: '4px',
                                 color: '#fff',
-                                fontSize: '1rem',
+                                fontSize: '0.9375rem',
                                 outline: 'none',
                                 boxSizing: 'border-box',
+                                fontFamily: 'inherit',
                             }}
+                            onFocus={(e) => e.target.style.borderColor = '#3ea6ff'}
+                            onBlur={(e) => e.target.style.borderColor = '#303030'}
                         />
                     </div>
 
                     <div style={{ marginBottom: '1.5rem' }}>
                         <label style={{
                             display: 'block',
-                            color: '#ccc',
-                            fontSize: '0.875rem',
-                            fontWeight: 600,
-                            marginBottom: '0.5rem',
+                            color: '#aaa',
+                            fontSize: '0.8125rem',
+                            marginBottom: '0.375rem',
                         }}>
-                            Description
+                            Description <span style={{ color: '#555' }}>(optional)</span>
                         </label>
                         <textarea
                             value={description}
                             onChange={(e) => setDescription(e.target.value)}
-                            placeholder="Tell viewers what your channel is about..."
+                            placeholder="What is your channel about?"
                             rows={3}
                             style={{
                                 width: '100%',
-                                padding: '0.75rem 1rem',
-                                background: '#0f0f0f',
-                                border: '1px solid #333',
-                                borderRadius: '8px',
+                                padding: '0.625rem 0.75rem',
+                                background: '#181818',
+                                border: '1px solid #303030',
+                                borderRadius: '4px',
                                 color: '#fff',
-                                fontSize: '1rem',
+                                fontSize: '0.9375rem',
                                 outline: 'none',
                                 resize: 'vertical',
                                 boxSizing: 'border-box',
                                 fontFamily: 'inherit',
                             }}
+                            onFocus={(e) => e.target.style.borderColor = '#3ea6ff'}
+                            onBlur={(e) => e.target.style.borderColor = '#303030'}
                         />
                     </div>
 
                     {error && (
-                        <div style={{
-                            background: 'rgba(255, 0, 0, 0.1)',
-                            border: '1px solid rgba(255, 0, 0, 0.3)',
-                            borderRadius: '8px',
-                            padding: '0.75rem 1rem',
-                            color: '#ff6b6b',
-                            fontSize: '0.875rem',
-                            marginBottom: '1.5rem',
+                        <p style={{
+                            color: '#f44',
+                            fontSize: '0.8125rem',
+                            margin: '0 0 1rem',
                         }}>
                             {error}
-                        </div>
+                        </p>
                     )}
 
                     <button
                         type="submit"
                         disabled={loading || !channelName.trim()}
                         style={{
-                            width: '100%',
-                            padding: '0.875rem',
-                            background: loading ? '#333' : 'linear-gradient(135deg, #ff4444, #ff6b00)',
+                            padding: '0.625rem 1.25rem',
+                            background: '#3ea6ff',
                             border: 'none',
-                            borderRadius: '8px',
-                            color: '#fff',
-                            fontSize: '1rem',
+                            borderRadius: '4px',
+                            color: '#0f0f0f',
+                            fontSize: '0.875rem',
                             fontWeight: 600,
                             cursor: loading ? 'not-allowed' : 'pointer',
-                            transition: 'opacity 0.2s',
-                            opacity: !channelName.trim() ? 0.5 : 1,
+                            opacity: loading || !channelName.trim() ? 0.5 : 1,
+                            fontFamily: 'inherit',
                         }}
                     >
-                        {loading ? 'Creating Channel...' : 'Create Channel'}
+                        {loading ? 'Creating...' : 'Create channel'}
                     </button>
                 </form>
             </div>
