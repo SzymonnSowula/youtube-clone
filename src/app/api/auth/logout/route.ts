@@ -1,14 +1,13 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
-import { getIronSession } from 'iron-session'
-import { sessionOptions, SessionData } from '@/lib/session'
+import { sessionOptions } from '@/lib/session'
 
-export async function GET() {
-  const cookieStore = await cookies()
-  const session = await getIronSession<SessionData>(cookieStore, sessionOptions)
-  
-  session.destroy()
-
+export async function POST() {
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
-  return NextResponse.redirect(new URL('/', baseUrl))
+  const response = NextResponse.redirect(new URL('/', baseUrl))
+  
+  // Delete the session cookie
+  response.cookies.delete(sessionOptions.cookieName)
+  
+  return response
 }

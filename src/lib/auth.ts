@@ -1,18 +1,30 @@
 import { cookies } from 'next/headers'
-import { getIronSession } from 'iron-session'
+import { unsealData } from 'iron-session'
 import { NextResponse } from 'next/server'
 import { sessionOptions, SessionData, defaultSession } from '@/lib/session'
 import { createClient } from '@/lib/supabase-server'
 
-export async function getSession() {
+export async function getSession(): Promise<SessionData> {
   const cookieStore = await cookies()
-  const session = await getIronSession<SessionData>(cookieStore, sessionOptions)
-  
-  if (!session.isLoggedIn) {
+  const cookie = cookieStore.get(sessionOptions.cookieName)
+
+  if (!cookie?.value) {
     return defaultSession
   }
-  
-  return session
+
+  try {
+    const session = await unsealData<SessionData>(cookie.value, {
+      password: sessionOptions.password as string,
+    })
+
+    if (!session.isLoggedIn) {
+      return defaultSession
+    }
+
+    return session
+  } catch {
+    return defaultSession
+  }
 }
 
 export async function getCurrentUser() {
