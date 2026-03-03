@@ -102,7 +102,7 @@ export async function GET(request: NextRequest) {
     const redirectUrl = new URL('/', baseUrl)
     const response = NextResponse.redirect(redirectUrl)
     
-    const session = await getIronSession<SessionData>(response, request, sessionOptions)
+    const session = await getIronSession<SessionData>(request, response as unknown as Response, sessionOptions)
     session.userId = userId
     session.whopUserId = userInfo.sub
     session.whopAccessToken = tokens.access_token
