@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { LayoutDashboard, Users, CreditCard, PlaySquare, Settings, DollarSign } from "lucide-react";
+import { LayoutDashboard, Users, CreditCard, PlaySquare, Settings, DollarSign, BarChart3 } from "lucide-react";
 
 export function CreatorSidebar() {
     return (
@@ -11,10 +11,11 @@ export function CreatorSidebar() {
             </div>
 
             <div className="flex flex-col py-4">
-                <SidebarItem icon={<LayoutDashboard className="w-5 h-5" />} label="Dashboard" active />
-                <SidebarItem icon={<PlaySquare className="w-5 h-5" />} label="Content" />
+                <SidebarItem icon={<LayoutDashboard className="w-5 h-5" />} label="Dashboard" href="/creator/dashboard" />
+                <SidebarItem icon={<PlaySquare className="w-5 h-5" />} label="Content" href="/creator/content" />
+                <SidebarItem icon={<BarChart3 className="w-5 h-5 text-green-400" />} label="Revenue" href="/creator/revenue" />
                 <SidebarItem icon={<Users className="w-5 h-5" />} label="Community" />
-                <SidebarItem icon={<DollarSign className="w-5 h-5 text-green-400" />} label="Memberships (Pay-ins)" />
+                <SidebarItem icon={<DollarSign className="w-5 h-5 text-green-400" />} label="Memberships" href="/creator/memberships" />
                 <SidebarItem icon={<CreditCard className="w-5 h-5 text-blue-400" />} label="Payouts" href="/creator/payouts" />
             </div>
 

@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase-server";
 import { CreatorSidebar } from "@/components/CreatorSidebar";
 import { getSession } from "@/lib/auth";
 import { whop } from "@/lib/whop";
-import { PlayCircle, Users, DollarSign, Film, MessageSquare, ThumbsUp } from "lucide-react";
+import { PlayCircle, Users, DollarSign, Film, MessageSquare, ThumbsUp, CreditCard } from "lucide-react";
 import Link from "next/link";
 
 export default async function CreatorDashboard() {
@@ -73,27 +73,70 @@ export default async function CreatorDashboard() {
         .eq("channel_id", channel.id)
         .eq("status", "active");
 
-    // --- Whop SDK: Active memberships & revenue ---
+    // --- Whop SDK: Real Payment Data ---
     let whopMembers = 0;
-    let estimatedRevenue = 0;
+    let actualRevenue = 0;
+    let recentPayments: Array<{
+        id: string;
+        amount: number;
+        status: string | null;
+        substatus: string;
+        user_name: string | null;
+        user_email: string | null;
+        card_brand: string | null;
+        paid_at: string | null;
+    }> = [];
 
     if (channel.whop_company_id) {
         try {
+            // Fetch active memberships count
             const memberships = await whop.memberships.list({
                 company_id: channel.whop_company_id,
                 statuses: ["active"],
             });
             whopMembers = memberships.data.length;
 
-            const { data: tiers } = await supabase
-                .from("membership_tiers")
-                .select("price")
-                .eq("channel_id", channel.id);
-
-            if (tiers && tiers.length > 0) {
-                const avgPrice = tiers.reduce((s: number, t: any) => s + parseFloat(t.price), 0) / tiers.length;
-                estimatedRevenue = whopMembers * avgPrice;
+            // Fetch real payments
+            const payments: Array<{
+                id: string;
+                usd_total: number | null;
+                total: number | null;
+                status: string | null;
+                substatus: string;
+                user: { name: string | null; email: string | null } | null;
+                card_brand: string | null;
+                paid_at: string | null;
+            }> = [];
+            const paymentsPage = await whop.payments.list({
+                company_id: channel.whop_company_id,
+                first: 20,
+                order: 'created_at',
+                direction: 'desc',
+            });
+            for await (const p of paymentsPage) {
+                payments.push(p as typeof payments[number]);
+                if (payments.length >= 20) break;
             }
+
+            // Calculate actual revenue from paid payments
+            for (const p of payments) {
+                const amount = p.usd_total ?? p.total ?? 0;
+                if (p.status === 'paid') {
+                    actualRevenue += amount;
+                }
+            }
+
+            // Get last 5 payments for the preview
+            recentPayments = payments.slice(0, 5).map(p => ({
+                id: p.id,
+                amount: p.usd_total ?? p.total ?? 0,
+                status: p.status,
+                substatus: p.substatus,
+                user_name: p.user?.name || null,
+                user_email: p.user?.email || null,
+                card_brand: p.card_brand || null,
+                paid_at: p.paid_at || null,
+            }));
         } catch (err) {
             console.error("[Dashboard] Whop error:", err);
         }
@@ -115,10 +158,19 @@ export default async function CreatorDashboard() {
         return n.toString();
     }
 
+    function getStatusColor(status: string | null): string {
+        switch (status) {
+            case 'paid': return 'text-green-400 bg-green-400/10';
+            case 'failed': return 'text-red-400 bg-red-400/10';
+            case 'refunded': return 'text-yellow-400 bg-yellow-400/10';
+            default: return 'text-gray-400 bg-gray-400/10';
+        }
+    }
+
     const stats = [
         { label: "Total Views", value: formatNumber(totalViews), icon: PlayCircle, color: "text-blue-400" },
         { label: "Subscribers", value: formatNumber(subscribers), icon: Users, color: "text-purple-400" },
-        { label: "Est. Revenue", value: `$${estimatedRevenue.toFixed(2)}`, icon: DollarSign, color: "text-green-400" },
+        { label: "Revenue", value: `$${actualRevenue.toFixed(2)}`, icon: DollarSign, color: "text-green-400" },
         { label: "Videos", value: formatNumber(videoCount || 0), icon: Film, color: "text-orange-400" },
         { label: "Comments", value: formatNumber(totalComments), icon: MessageSquare, color: "text-cyan-400" },
         { label: "Likes", value: formatNumber(totalLikes), icon: ThumbsUp, color: "text-pink-400" },
@@ -172,8 +224,9 @@ export default async function CreatorDashboard() {
                         ))}
                     </div>
 
-                    {/* Recent Videos */}
+                    {/* Recent Payments + Recent Videos */}
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                        {/* Recent Videos */}
                         <div className="lg:col-span-2">
                             <div className="p-6 bg-[#1F1F1F] border border-[#303030] rounded-2xl">
                                 <h2 className="text-xl font-bold mb-4">Recent Videos</h2>
@@ -205,11 +258,55 @@ export default async function CreatorDashboard() {
                             </div>
                         </div>
 
-                        {/* Quick Links */}
+                        {/* Sidebar: Recent Payments + Quick Links */}
                         <div className="space-y-6">
+                            {/* Recent Payments */}
+                            {channel.whop_company_id && (
+                                <div className="p-6 bg-[#1F1F1F] border border-[#303030] rounded-2xl">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <h2 className="text-lg font-bold">Recent Payments</h2>
+                                        <Link href="/creator/revenue" className="text-xs text-blue-400 hover:text-blue-300">
+                                            View all →
+                                        </Link>
+                                    </div>
+                                    {recentPayments.length > 0 ? (
+                                        <div className="space-y-3">
+                                            {recentPayments.map((p) => (
+                                                <div key={p.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-[#272727] transition-colors">
+                                                    <div className="flex items-center gap-3 min-w-0">
+                                                        <CreditCard className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                                                        <div className="min-w-0">
+                                                            <p className="text-sm font-medium truncate">
+                                                                {p.user_name || p.user_email || 'Unknown'}
+                                                            </p>
+                                                            <p className="text-xs text-gray-500">
+                                                                {p.paid_at ? new Date(p.paid_at).toLocaleDateString() : '—'}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 flex-shrink-0">
+                                                        <span className={`text-xs px-2 py-0.5 rounded-full ${getStatusColor(p.status)}`}>
+                                                            {p.substatus || p.status || 'pending'}
+                                                        </span>
+                                                        <span className="text-sm font-bold">${p.amount.toFixed(2)}</span>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <p className="text-gray-500 text-sm py-4 text-center">No payments yet</p>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Quick Links */}
                             <div className="p-6 bg-[#1F1F1F] border border-[#303030] rounded-2xl">
                                 <h2 className="text-lg font-bold mb-4">Quick Links</h2>
                                 <div className="space-y-3">
+                                    <Link href="/creator/revenue" className="block p-3 rounded-xl hover:bg-[#272727] transition-colors border border-transparent hover:border-[#3f3f3f]">
+                                        <p className="font-medium">Revenue</p>
+                                        <p className="text-xs text-gray-400">View payment history & analytics</p>
+                                    </Link>
                                     <Link href="/creator/payouts" className="block p-3 rounded-xl hover:bg-[#272727] transition-colors border border-transparent hover:border-[#3f3f3f]">
                                         <p className="font-medium">Payout Portal</p>
                                         <p className="text-xs text-gray-400">View and withdraw earnings</p>
