@@ -1,7 +1,9 @@
 import { createClient } from "@/lib/supabase-server";
 import { notFound, redirect } from "next/navigation";
 import { EmbeddedChat } from "@/components/EmbeddedChat";
-import { CheckCircle, ThumbsUp, ThumbsDown, Share2, MoreHorizontal, Lock } from "lucide-react";
+import { CommentSection } from "@/components/CommentSection";
+import { VideoLikeButtons } from "@/components/VideoLikeButtons";
+import { CheckCircle, Share2, MoreHorizontal, Lock } from "lucide-react";
 import { getSession } from "@/lib/auth";
 import { whop } from "@/lib/whop";
 
@@ -26,7 +28,6 @@ export default async function WatchPage({
 
     // --- Membership Gating Logic ---
     let hasAccess = !video.is_gated;
-    let gatingError = null;
 
     if (video.is_gated) {
         const session = await getSession();
@@ -35,20 +36,46 @@ export default async function WatchPage({
         }
 
         try {
-            // Check Whop memberships for this specific user and channel (company)
             const memberships = await whop.memberships.list({
                 user_ids: [session.whopUserId!],
                 company_id: video.channels.whop_company_id,
                 statuses: ["active"],
             });
-
             hasAccess = memberships.data.length > 0;
         } catch (err) {
             console.error("Error checking membership:", err);
-            gatingError = "Failed to verify membership status.";
             hasAccess = false;
         }
     }
+
+    // --- Fetch like/dislike counts ---
+    const { data: videoLikes } = await supabase
+        .from("video_likes")
+        .select("type")
+        .eq("video_id", id);
+
+    const likeCount = (videoLikes || []).filter((l: any) => l.type === "like").length;
+    const dislikeCount = (videoLikes || []).filter((l: any) => l.type === "dislike").length;
+
+    // Check user's vote
+    const session = await getSession();
+    let userVote: string | null = null;
+    if (session.isLoggedIn && session.userId) {
+        const { data: userLike } = await supabase
+            .from("video_likes")
+            .select("type")
+            .eq("user_id", session.userId)
+            .eq("video_id", id)
+            .single();
+        userVote = userLike?.type || null;
+    }
+
+    // --- Subscriber count ---
+    const { count: subscriberCount } = await supabase
+        .from("subscriptions")
+        .select("*", { count: "exact", head: true })
+        .eq("channel_id", video.channel_id)
+        .eq("status", "active");
 
     return (
         <div className="flex flex-col lg:flex-row gap-6">
@@ -69,11 +96,11 @@ export default async function WatchPage({
                             </div>
                             <h2 className="text-2xl font-bold mb-2">Members-only content</h2>
                             <p className="text-gray-400 max-w-md mb-8">
-                                This video is exclusive to members of <span className="text-white font-bold">{video.channels.name}</span>.
+                                This video is exclusive to members of <span className="text-white font-bold">{video.channels.channel_name}</span>.
                                 Join today to unlock this and all other premium content.
                             </p>
                             <a
-                                href={`/channel/${video.channels.name}`}
+                                href={`/channel/${video.channels.channel_name}`}
                                 className="bg-white text-black px-8 py-3 rounded-full font-bold hover:bg-gray-200 transition-all transform hover:scale-105"
                             >
                                 View Membership Tiers
@@ -91,20 +118,20 @@ export default async function WatchPage({
                         <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-full bg-[#303030] overflow-hidden">
                                 <img
-                                    src={video.channels.users.avatar_url || "/placeholder-avatar.jpg"}
-                                    alt={video.channels.name}
+                                    src={video.channels.users?.avatar_url || "/placeholder-avatar.jpg"}
+                                    alt={video.channels.channel_name}
                                     className="w-full h-full object-cover"
                                 />
                             </div>
                             <div>
                                 <div className="flex items-center gap-1">
                                     <h3 className="font-bold text-base leading-none">
-                                        {video.channels.name}
+                                        {video.channels.channel_name}
                                     </h3>
                                     <CheckCircle className="w-3.5 h-3.5 text-gray-400" />
                                 </div>
                                 <p className="text-xs text-gray-400">
-                                    45.2K subscribers
+                                    {subscriberCount || 0} subscribers
                                 </p>
                             </div>
                             <button className="ml-4 bg-white text-black px-4 py-2 rounded-full text-sm font-bold hover:bg-gray-200 transition-colors">
@@ -112,15 +139,12 @@ export default async function WatchPage({
                             </button>
                         </div>
                         <div className="flex items-center gap-2 overflow-x-auto sm:overflow-visible pb-2 sm:pb-0">
-                            <div className="flex items-center bg-[#272727] rounded-full h-9">
-                                <button className="flex items-center gap-2 px-4 hover:bg-[#3f3f3f] rounded-l-full border-r border-[#3f3f3f] transition-colors">
-                                    <ThumbsUp className="w-4 h-4" />
-                                    <span className="text-sm font-bold">12K</span>
-                                </button>
-                                <button className="px-4 hover:bg-[#3f3f3f] rounded-r-full transition-colors">
-                                    <ThumbsDown className="w-4 h-4" />
-                                </button>
-                            </div>
+                            <VideoLikeButtons
+                                videoId={id}
+                                initialLikeCount={likeCount}
+                                initialDislikeCount={dislikeCount}
+                                initialUserVote={userVote}
+                            />
                             <button className="flex items-center gap-2 px-4 h-9 bg-[#272727] rounded-full hover:bg-[#3f3f3f] transition-colors whitespace-nowrap">
                                 <Share2 className="w-4 h-4" />
                                 <span className="text-sm font-bold">Share</span>
@@ -140,6 +164,9 @@ export default async function WatchPage({
                             {video.description || "No description provided."}
                         </p>
                     </div>
+
+                    {/* Comments Section */}
+                    <CommentSection videoId={id} />
                 </div>
             </div>
 

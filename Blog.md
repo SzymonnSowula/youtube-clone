@@ -987,11 +987,497 @@ https://your-app.vercel.app/api/auth/callback
 
 > **Note:** The `redirect_uri` must be an **exact match** — including protocol, domain, path, and no trailing slash.
 
+## Step 13: Comments & Likes
+
+Every video platform needs social engagement. We'll build a full comment system with nested replies and like/dislike buttons — all stored in Supabase.
+
+### Update the database schema
+
+Create a new migration with tables for comments, video likes, and comment likes:
+
+```sql
+-- supabase/migrations/20240102000000_comments_likes.sql
+
+-- Comments Table (with nested replies via parent_id)
+CREATE TABLE public.comments (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  video_id UUID REFERENCES public.videos(id) ON DELETE CASCADE NOT NULL,
+  user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
+  parent_id UUID REFERENCES public.comments(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+);
+
+-- Video Likes / Dislikes
+CREATE TABLE public.video_likes (
+  user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
+  video_id UUID REFERENCES public.videos(id) ON DELETE CASCADE NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('like', 'dislike')),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+  PRIMARY KEY (user_id, video_id)
+);
+
+-- Comment Likes
+CREATE TABLE public.comment_likes (
+  user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
+  comment_id UUID REFERENCES public.comments(id) ON DELETE CASCADE NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+  PRIMARY KEY (user_id, comment_id)
+);
+
+-- Enable RLS + policies
+ALTER TABLE public.comments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.video_likes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.comment_likes ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Comments are viewable by everyone." ON public.comments FOR SELECT USING (true);
+CREATE POLICY "Authenticated users can insert comments." ON public.comments FOR INSERT WITH CHECK (true);
+CREATE POLICY "Video likes are viewable by everyone." ON public.video_likes FOR SELECT USING (true);
+CREATE POLICY "Authenticated users can manage video likes." ON public.video_likes FOR INSERT WITH CHECK (true);
+CREATE POLICY "Comment likes are viewable by everyone." ON public.comment_likes FOR SELECT USING (true);
+CREATE POLICY "Authenticated users can manage comment likes." ON public.comment_likes FOR INSERT WITH CHECK (true);
+```
+
+### Create the comments API route
+
+The comments API handles fetching threaded comments with like counts and posting new comments or replies:
+
+```typescript
+// src/app/api/comments/route.ts
+export async function GET(request: NextRequest) {
+  const videoId = request.nextUrl.searchParams.get('videoId')
+
+  // Fetch top-level comments with user info
+  const { data: comments } = await supabase
+    .from('comments')
+    .select('*, users(id, username, avatar_url)')
+    .eq('video_id', videoId)
+    .is('parent_id', null)
+    .order('created_at', { ascending: false })
+
+  // Fetch replies for each comment
+  const commentIds = comments.map(c => c.id)
+  const { data: replies } = await supabase
+    .from('comments')
+    .select('*, users(id, username, avatar_url)')
+    .in('parent_id', commentIds)
+    .order('created_at', { ascending: true })
+
+  // Fetch like counts and assemble response
+  // ... (aggregate like counts per comment)
+
+  return NextResponse.json({ comments: commentsWithReplies })
+}
+
+export async function POST(request: NextRequest) {
+  const session = await getSession()
+  const { videoId, content, parentId } = await request.json()
+
+  const { data: comment } = await supabase
+    .from('comments')
+    .insert({
+      video_id: videoId,
+      user_id: session.userId,
+      parent_id: parentId || null,
+      content: content.trim(),
+    })
+    .select('*, users(id, username, avatar_url)')
+    .single()
+
+  return NextResponse.json({ comment })
+}
+```
+
+### Create the video like/dislike API
+
+This route handles toggling between like, dislike, and no vote — with a smart toggle pattern:
+
+```typescript
+// src/app/api/videos/[id]/like/route.ts
+export async function POST(request: NextRequest, { params }) {
+  const { type } = await request.json() // 'like' or 'dislike'
+
+  const { data: existing } = await supabase
+    .from('video_likes')
+    .select()
+    .eq('user_id', session.userId)
+    .eq('video_id', params.id)
+    .single()
+
+  if (existing) {
+    if (existing.type === type) {
+      // Toggle off — remove vote
+      await supabase.from('video_likes').delete().eq(...)
+      return NextResponse.json({ action: 'removed', type: null })
+    } else {
+      // Switch vote
+      await supabase.from('video_likes').update({ type }).eq(...)
+      return NextResponse.json({ action: 'switched', type })
+    }
+  } else {
+    // New vote
+    await supabase.from('video_likes').insert({ user_id, video_id, type })
+    return NextResponse.json({ action: 'added', type })
+  }
+}
+```
+
+### Build the CommentSection component
+
+The `CommentSection` is a client component that handles the full comment UX: posting, replying, liking, and expanding reply threads:
+
+```tsx
+// src/components/CommentSection.tsx
+"use client"
+
+export function CommentSection({ videoId }: { videoId: string }) {
+  const [comments, setComments] = useState<Comment[]>([])
+  const [replyingTo, setReplyingTo] = useState<string | null>(null)
+
+  // Fetch comments on mount
+  useEffect(() => { fetchComments() }, [videoId])
+
+  // Post a new comment or reply
+  async function handleSubmitComment(e: React.FormEvent) {
+    const res = await fetch("/api/comments", {
+      method: "POST",
+      body: JSON.stringify({ videoId, content: newComment }),
+    })
+    // ... update local state
+  }
+
+  return (
+    <div>
+      <h2>{comments.length} Comments</h2>
+      {/* Comment input */}
+      {/* Comment list with nested replies */}
+      {/* Each comment has like button + reply button */}
+      {/* Replies are collapsible */}
+    </div>
+  )
+}
+```
+
+### Build the VideoLikeButtons component
+
+This client component gives optimistic UI updates for the like/dislike buttons:
+
+```tsx
+// src/components/VideoLikeButtons.tsx
+"use client"
+
+export function VideoLikeButtons({ videoId, initialLikeCount, initialDislikeCount, initialUserVote }) {
+  const [likeCount, setLikeCount] = useState(initialLikeCount)
+  const [userVote, setUserVote] = useState(initialUserVote)
+
+  async function handleVote(type: 'like' | 'dislike') {
+    const res = await fetch(`/api/videos/${videoId}/like`, {
+      method: 'POST',
+      body: JSON.stringify({ type }),
+    })
+    const data = await res.json()
+    // Update counts optimistically based on action
+  }
+
+  return (
+    <div className="flex items-center bg-[#272727] rounded-full">
+      <button onClick={() => handleVote('like')}>
+        <ThumbsUp fill={userVote === 'like' ? 'currentColor' : 'none'} />
+        {likeCount}
+      </button>
+      <button onClick={() => handleVote('dislike')}>
+        <ThumbsDown fill={userVote === 'dislike' ? 'currentColor' : 'none'} />
+      </button>
+    </div>
+  )
+}
+```
+
+### Update the watch page
+
+Add both components to the watch page, passing server-fetched initial data:
+
+```tsx
+// src/app/watch/[id]/page.tsx
+// ... after the video description section:
+
+{/* Like/Dislike Buttons */}
+<VideoLikeButtons
+  videoId={id}
+  initialLikeCount={likeCount}
+  initialDislikeCount={dislikeCount}
+  initialUserVote={userVote}
+/>
+
+{/* Comments Section */}
+<CommentSection videoId={id} />
+```
+
+### Test comments and likes
+
+1. Navigate to any video's watch page.
+2. Post a comment and verify it appears immediately.
+3. Click **Reply** on your comment, type a reply, and verify it threads correctly.
+4. Expand/collapse the reply thread.
+5. Like and dislike the video — verify the count updates and the button state changes.
+6. Like a comment and verify the like count increments.
+
 ---
 
-## Step 13: What's next?
+## Step 14: Creator Analytics with Whop SDK
 
-You've now built a fully functional YouTube clone with:
+The creator dashboard started with hardcoded mock stats. Now we'll replace them with **real data** pulled from the Whop SDK and Supabase.
+
+### How it works
+
+The analytics stack combines two data sources:
+- **Whop SDK** → `whop.memberships.list()` gives us active subscriber count per channel
+- **Supabase** → Views, videos, comments, and likes are aggregated from our database
+
+Revenue is estimated by multiplying active membership count by average tier price.
+
+### Create the analytics API route
+
+```typescript
+// src/app/api/creator/analytics/route.ts
+export async function GET() {
+  const session = await getSession()
+  const supabase = await createClient()
+
+  const { data: channel } = await supabase
+    .from('channels')
+    .select('*')
+    .eq('id', session.userId)
+    .single()
+
+  // --- Supabase stats ---
+  const totalViews = (await supabase.from('videos').select('views').eq('channel_id', channel.id))
+    .data.reduce((sum, v) => sum + v.views, 0)
+
+  const { count: videoCount } = await supabase
+    .from('videos')
+    .select('*', { count: 'exact', head: true })
+    .eq('channel_id', channel.id)
+
+  // --- Whop SDK: live membership data ---
+  let whopMembershipCount = 0
+  let estimatedRevenue = 0
+
+  if (channel.whop_company_id) {
+    const memberships = await whop.memberships.list({
+      company_id: channel.whop_company_id,
+      statuses: ['active'],
+    })
+    whopMembershipCount = memberships.data.length
+
+    // Revenue = memberships × average tier price
+    const { data: tiers } = await supabase
+      .from('membership_tiers')
+      .select('price')
+      .eq('channel_id', channel.id)
+
+    if (tiers.length > 0) {
+      const avgPrice = tiers.reduce((s, t) => s + parseFloat(t.price), 0) / tiers.length
+      estimatedRevenue = whopMembershipCount * avgPrice
+    }
+  }
+
+  return NextResponse.json({
+    stats: { totalViews, subscribers: whopMembershipCount, estimatedRevenue, totalVideos: videoCount },
+    recentVideos,
+  })
+}
+```
+
+### Rewrite the Creator Dashboard
+
+The Creator Dashboard now fetches real data server-side and displays a **Whop connection status** badge:
+
+```tsx
+// src/app/creator/dashboard/page.tsx
+export default async function CreatorDashboard() {
+  // ... fetch channel, stats from Supabase, memberships from Whop SDK
+
+  const stats = [
+    { label: "Total Views", value: formatNumber(totalViews), icon: PlayCircle },
+    { label: "Subscribers", value: formatNumber(subscribers), icon: Users },
+    { label: "Est. Revenue", value: `$${estimatedRevenue.toFixed(2)}`, icon: DollarSign },
+    { label: "Videos", value: formatNumber(videoCount), icon: Film },
+    { label: "Comments", value: formatNumber(totalComments), icon: MessageSquare },
+    { label: "Likes", value: formatNumber(totalLikes), icon: ThumbsUp },
+  ]
+
+  return (
+    <div>
+      {/* Whop Connection Status */}
+      {channel.whop_company_id ? (
+        <div className="bg-green-500/10 border border-green-500/20 rounded-xl">
+          🟢 Whop Connected — Revenue and membership data synced live via Whop SDK
+        </div>
+      ) : (
+        <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl">
+          🟡 Whop not connected — Connect your Whop company to enable revenue tracking
+        </div>
+      )}
+
+      {/* Stats Grid */}
+      <div className="grid grid-cols-3 gap-4">
+        {stats.map(stat => <StatCard key={stat.label} {...stat} />)}
+      </div>
+
+      {/* Recent Videos */}
+      {/* Quick Links */}
+    </div>
+  )
+}
+```
+
+### Test the analytics
+
+1. Navigate to the Creator Studio → Dashboard.
+2. Verify the stats show real data (views from Supabase, subscribers from Whop).
+3. If your Whop company is connected, you should see the green "Whop Connected" badge.
+4. Check that estimated revenue updates as memberships change.
+
+---
+
+## Step 15: Live Streaming
+
+The final feature brings real-time streaming to our platform. We create a **Live hub** for discovering active streams and a **stream viewer** page with embedded chat powered by Whop.
+
+### Create the LiveBadge component
+
+A reusable badge with a pulsing red dot animation:
+
+```tsx
+// src/components/LiveBadge.tsx
+export function LiveBadge({ size = "sm" }: { size?: "sm" | "md" | "lg" }) {
+  return (
+    <span className="bg-red-600 text-white font-bold rounded px-2 py-0.5 inline-flex items-center gap-1 uppercase">
+      <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
+      Live
+    </span>
+  )
+}
+```
+
+### Create the Live hub page
+
+The hub page displays currently live streams and upcoming scheduled streams:
+
+```tsx
+// src/app/live/page.tsx
+export default function LivePage() {
+  return (
+    <div className="space-y-10">
+      <div className="flex items-center gap-4">
+        <Radio className="w-6 h-6 text-red-500" />
+        <h1 className="text-3xl font-bold">Live</h1>
+      </div>
+
+      {/* Live Now Section */}
+      <section>
+        <h2 className="text-xl font-bold">Live Now</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {LIVE_STREAMS.map(stream => (
+            <Link href={`/live/${stream.id}`}>
+              <div className="relative aspect-video">
+                <img src={stream.thumbnail} />
+                <LiveBadge />
+                <span>{stream.viewers} watching</span>
+              </div>
+              <h3>{stream.title}</h3>
+              <p>{stream.creator}</p>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      {/* Upcoming Streams */}
+      <section>
+        <h2 className="text-xl font-bold">Upcoming</h2>
+        {/* Stream cards with "Set Reminder" buttons */}
+      </section>
+    </div>
+  )
+}
+```
+
+### Create the stream viewer page
+
+The stream viewer page mirrors the watch page layout but with a live player and real-time chat:
+
+```tsx
+// src/app/live/[id]/page.tsx
+export default function LiveStreamPage({ params }) {
+  const stream = STREAMS[params.id]
+
+  return (
+    <div className="flex flex-col lg:flex-row gap-4">
+      {/* Stream Player */}
+      <div className="flex-1">
+        <div className="aspect-video bg-black rounded-xl relative">
+          <iframe src={stream.streamUrl} className="w-full h-full" />
+          <LiveBadge size="lg" />
+          <span>{stream.viewers} watching</span>
+        </div>
+
+        {/* Stream Info */}
+        <h1>{stream.title}</h1>
+        <div className="flex items-center gap-2">
+          <button>Like</button>
+          <button>Share</button>
+          <button className="bg-gradient-to-r from-yellow-500 to-orange-500">
+            <DollarSign /> Super Chat
+          </button>
+        </div>
+      </div>
+
+      {/* Live Chat Sidebar */}
+      <div className="w-full lg:w-[400px]">
+        <div className="bg-[#1A1A1A] rounded-xl h-full">
+          <h3>Live Chat</h3>
+          {stream.chatChannelId ? (
+            <EmbeddedChat channelId={stream.chatChannelId} />
+          ) : (
+            <MockChatMessages />
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+```
+
+The Super Chat button uses the same Whop checkout flow from Step 7, creating a one-time payment that sends a highlighted message in the chat.
+
+### Test live streaming
+
+1. Navigate to `/live` — you should see the Live hub with stream cards.
+2. Click into a stream to open the viewer page.
+3. Verify the video player, live chat, and Super Chat button all render correctly.
+4. When a Whop chat channel ID is configured, the live chat uses Whop's real-time messaging.
+
+---
+
+## Step 16: Deploying the final version
+
+After adding comments, analytics, and live streaming:
+
+1. **Run the new database migration** in your Supabase SQL Editor (the `comments`, `video_likes`, and `comment_likes` tables).
+2. **Commit and push** all changes to GitHub.
+3. Vercel will automatically redeploy.
+4. Test all features on production:
+   - Post a comment and reply
+   - Like/dislike a video
+   - View real analytics on the Creator Dashboard
+   - Browse the Live hub and open a stream
+
+---
+
+## What's next?
+
+You've now built a fully featured YouTube clone with:
 
 - ✅ **Whop OAuth** for user authentication
 - ✅ **Channel memberships** with Whop-powered checkouts
@@ -1000,15 +1486,17 @@ You've now built a fully functional YouTube clone with:
 - ✅ **Creator payouts** through the Whop portal
 - ✅ **Video uploads** to Supabase Storage
 - ✅ **Session-aware UI** with avatar, profile dropdown, and Creator Studio
+- ✅ **Comments & Likes** with nested replies
+- ✅ **Creator Analytics** with real Whop SDK data
+- ✅ **Live Streaming** with embedded chat
 
-Here are some ideas to extend this further:
+Here are some ideas to extend this even further:
 
-- **Video processing** — Add transcoding and adaptive bitrate streaming
-- **Comments & Likes** — Build a comment system with nested replies
-- **Recommendations** — Implement a "Suggested Videos" algorithm
-- **Live streaming** — Integrate with a live streaming service
-- **Analytics** — Pull real revenue data from the Whop SDK for the creator dashboard
+- **Video processing** — Add transcoding and adaptive bitrate streaming with services like Mux or Cloudflare Stream
+- **Recommendations** — Implement a "Suggested Videos" algorithm based on watch history
+- **Notifications** — Push notifications for new videos, replies, and live streams
 - **Mobile app** — Wrap the web app in a React Native shell
+- **Search** — Full-text search across videos, channels, and comments using Supabase's pg_trgm extension
 
 ---
 
@@ -1017,3 +1505,4 @@ Here are some ideas to extend this further:
 Whop gives you everything you need to build a monetized creator platform — authentication, payments, payouts, and community tools — all through a single SDK.
 
 [Start building on Whop today →](https://whop.com/developers)
+

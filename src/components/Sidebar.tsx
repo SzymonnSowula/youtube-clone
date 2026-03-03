@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Home, Compass, PlaySquare, Clock, ThumbsUp, History, LayoutDashboard, DollarSign, Film, Users } from "lucide-react";
+import { Home, Compass, PlaySquare, Clock, ThumbsUp, History, LayoutDashboard, DollarSign, Film, Users, Radio } from "lucide-react";
 
 interface SidebarProps {
     user?: {
@@ -16,6 +16,7 @@ export function Sidebar({ user }: SidebarProps) {
                 <SidebarItem href="#" icon={<Compass className="w-5 h-5" />} label="Explore" />
                 <SidebarItem href="#" icon={<PlaySquare className="w-5 h-5" />} label="Shorts" />
                 <SidebarItem href="#" icon={<Users className="w-5 h-5" />} label="Subscriptions" />
+                <SidebarItem href="/live" icon={<Radio className="w-5 h-5" />} label="Live" />
             </div>
 
             <div className="border-t border-[#303030] my-2" />
