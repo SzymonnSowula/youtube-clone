@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
     console.log('[Auth] Syncing user to Supabase...')
     const supabase = await createClient()
     
-    const { data: existingUser, error: selectError } = await supabase
+    const { data: existingUser } = await supabase
       .from('users')
       .select('id')
       .eq('whop_id', userInfo.sub)
@@ -75,8 +75,6 @@ export async function GET(request: NextRequest) {
       userId = existingUser.id;
     } else {
       console.log('[Auth] No existing user, creating new one...')
-      // Use Supabase Admin approach: create auth user first, then profile
-      // Or simply insert directly if the FK constraint is relaxed
       const newId = crypto.randomUUID()
       const { data: newUser, error: insertError } = await supabase
         .from('users')
@@ -92,8 +90,6 @@ export async function GET(request: NextRequest) {
         
       if (insertError) {
         console.error('[Auth] Supabase insert error:', insertError)
-        // Fallback: still create session even if DB sync fails
-        // This lets the user log in while we debug the DB issue
         userId = newId
       } else {
         userId = newUser!.id
@@ -102,20 +98,23 @@ export async function GET(request: NextRequest) {
 
     console.log('[Auth] Creating session for userId:', userId)
 
-    // Step 4: Save session
-    const session = await getIronSession<SessionData>(cookieStore, sessionOptions)
+    // Step 4: Save session — use the Response object approach for Vercel compatibility
+    const redirectUrl = new URL('/', baseUrl)
+    const response = NextResponse.redirect(redirectUrl)
+    
+    const session = await getIronSession<SessionData>(response, request, sessionOptions)
     session.userId = userId
     session.whopUserId = userInfo.sub
     session.whopAccessToken = tokens.access_token
     session.isLoggedIn = true
     await session.save()
 
-    // Clean up
-    cookieStore.delete('oauth_code_verifier')
-    cookieStore.delete('oauth_state')
+    // Clean up OAuth cookies
+    response.cookies.delete('oauth_code_verifier')
+    response.cookies.delete('oauth_state')
 
     console.log('[Auth] Login complete, redirecting to home')
-    return NextResponse.redirect(new URL('/', baseUrl))
+    return response
   } catch (err) {
     console.error('[Auth] OAuth callback error:', err)
     const errorMessage = err instanceof Error ? err.message : 'unknown'
